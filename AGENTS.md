@@ -1,6 +1,7 @@
 - 忽略文件：编写时检查 `.gitignore`，并保持它与新增运行时文件同步；仓库已改为原生脚本，不再维护旧工具的忽略文件。
-- 备份脚本：编写时检查 `scripts/restore-dotfiles.zsh` 与 `scripts/backup-dotfiles.zsh`；受管目标统一维护在 `scripts/managed-targets.zsh`。
+- 入口：只通过 `./install.sh` 安装、`./install.sh -r` 回滚；安装前备份，备份只保留最近一份，成功回滚后清理。
+- 文件操作：备份、覆盖写入和回滚统一使用 `lib/files.zsh`；受管目标统一维护在 `lib/config.zsh`。
 - 兼容性：外部命令同时考虑 macOS BSD 与 Linux GNU 语法；不要把 `--` 当成所有外部命令都支持的参数结束符。
-- 架构：日常维护内容放在 `apps/<app>` 的 shared 源码与 ignored `private/<app>`；`scripts/apply-dotfiles.zsh` 负责渲染与部署，生成后的目标不依赖仓库路径。
-- 命名：语义目录名不用下划线；使用语义名，不用序号表达加载顺序，Zsh 顺序统一写在 `apps/zsh/manifest.toml`。
+- 架构：日常维护内容放在 `apps/<app>` 的 shared 源码与 ignored `private/<app>`；`lib/config.zsh` 负责渲染，生成后的目标不依赖仓库路径。备份仅包含受管 HOME 文件，回滚不修改仓库源码。
+- 命名：脚本名不用连字符；语义目录名不用下划线；使用语义名，不用序号表达加载顺序，Zsh 顺序统一写在 `apps/zsh/manifest.toml`。
 - 最终态：不保留兼容 shim、迁移文件或旧目录跳转；变更必须先在临时 HOME 中验证。

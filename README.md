@@ -2,53 +2,45 @@
 
 ## 写给人看
 
-macOS 和 Linux 通用的 Zsh、Vim、Git、npm、SSH、gh 配置。脚本把仓库里的片段拼成普通文件写进 `~`，不用软链接。
+macOS 和 Linux 通用的 Zsh、Vim、Git、npm、SSH、gh 配置。维护仓库里的源码，用 `./install.sh` 备份并安装到本机。生成的是独立的普通文件，仓库移动或删除后仍可使用。
 
 ### 包含什么
 
-- 提示符 `[用户:路径]$`，颜色是 256 色编号：括号和冒号 46（绿），用户名 82（黄绿），路径 201（品红），`$` 196（红，root 下显示 `#`）。定义在 `apps/zsh/shared/interactive/theme.zsh`。
-- Zsh 插件用 [Zim](https://github.com/zimfw/zimfw) 管理：补全、语法高亮、自动建议，↑/↓ 按已输入的内容搜索历史。
-- `ls` 在终端里按行排成紧凑的多列。输出不是终端，或者带了 `-l`、长选项、多个路径时，直接用系统 `ls`。
-- 历史在多个终端间共享并去重，空格开头的命令不记录。
-- alias 和函数：`tl` / `ta`（tmux ls / attach）、`rsy`（rsync -avz --progress，走 SSH）、`mosh`（固定 IPv4 和 UDP 60000–60020）、`tgz` / `untgz`（打包 / 解包 .tar.gz）。macOS 上还有 `cb`（把文件内容或命令输出复制到剪贴板）、`zzz`（关显示器）、`awake` / `slp`（禁止睡眠 / 恢复睡眠并立即睡眠）。
-- Vim 只配了 Option 键：Insert、Normal、命令行模式下，Option+←/→ 按词移动，Option+Backspace 删前一个词，Option+Fn+Backspace 删后一个词。终端要把 Option 组合键发成 Esc 前缀序列，在 iTerm2 上验证过。
-- Git 只设了 `http.version = HTTP/1.1`；SSH 对所有主机开 keepalive；gh 加了 `co`（`gh pr checkout`）。
+- Zsh：彩色 `[用户:路径]$` 提示符，Zim 提供补全、语法高亮、自动建议和按输入内容搜索历史。
+- `ls`：在终端里按行排成紧凑多列；输出到管道，或使用 `-l`、长选项、多个路径时交给系统 `ls`。
+- 历史记录：多个终端共享并去重，空格开头的命令不记录。
+- 常用命令：`tl` / `ta` 管理 tmux 会话，`rsy` 通过 SSH 同步文件，`mosh` 固定 IPv4 和 UDP 60000–60020，`tgz` / `untgz` 打包和解包。
+- macOS：`cb` 复制文件内容或命令输出，`zzz` 关闭显示器，`awake` / `slp` 禁止睡眠或恢复睡眠并立即休眠。
+- Vim：Insert、Normal、命令行模式下，Option+←/→ 按词移动，Option+Backspace / Option+Fn+Backspace 删除前后一个词。终端需发送 Esc 前缀序列，已在 iTerm2 验证。
+- Git 使用 HTTP/1.1；SSH 开启 keepalive；gh 提供 `co`（`gh pr checkout`）。
 
-### 注意
+### 安装与回滚
 
-- 开了 `NO_CLOBBER`：`>` 不会覆盖已有文件，要覆盖用 `>|`。
-- macOS 的 Homebrew 用清华镜像。不需要就删掉 `apps/zsh/platform/darwin/profile.zsh` 里的三个 `HOMEBREW_*`。
-- Vim 里 Esc 后 1 秒内按的 `b`、`f`、`d`、退格，会和 Esc 一起被当成 Option 组合键。比如快速按 Esc、`d`、`d`，删掉的是一个词，不是一整行。
+需要 Zsh 和 Git。首次启动交互式 Zsh 时，通过 curl 或 wget 联网安装 Zim 和插件；已安装的 NVM、Homebrew 会自动加载。
 
-### 安装
+安装会整体替换下表中的八个配置文件。要长期保留的本机设置，先整理到 `private/`，见下一节。
 
-需要 zsh、git 和 curl（或 wget）。第一次启动 zsh 时会联网安装 Zim 和插件。NVM、Homebrew 装了就会自动加载。
-
-apply 会用生成的内容整个替换这些文件：`~/.zshrc`、`~/.zprofile`、`~/.zimrc`、`~/.vimrc`、`~/.gitconfig`、`~/.npmrc`、`~/.ssh/config`、`~/.config/gh/config.yml`。
-
-```zsh
+```sh
 git clone https://github.com/keeperhihi/dotfile.git
 cd dotfile
-zsh scripts/backup-dotfiles.zsh        # 先备份这些文件
-# 把要保留的设置搬进 private/，至少 Git 身份和 SSH 主机，见下一节
-zsh scripts/apply-dotfiles.zsh --diff  # 预览改动
-zsh scripts/apply-dotfiles.zsh
+# 准备好 private/ 后安装；没有私有配置也可以直接安装
+./install.sh
 exec zsh -l
 ```
 
-备份在 `~/.local/state/dotfiles-backups/`。不想用了，就拿它恢复：
+安装前自动备份到 `~/.local/state/dotfiles/backup/`，只保留最近一次安装前的状态。每次安装都会更新备份，即使配置内容没有变化。
 
-```zsh
-zsh scripts/restore-dotfiles.zsh ~/.local/state/dotfiles-backups/dotfiles-YYYYMMDD-HHMMSS.tar.gz
+```sh
+./install.sh -r
 ```
 
-以后改配置就改仓库里的文件，再跑一次 apply。直接改 `~/.zshrc` 这类生成的文件，下次 apply 会被覆盖。
+回滚直接覆盖当前受管配置，不询问确认：恢复原文件内容、权限和符号链接，删除安装前不存在的文件，成功后删除备份。回滚不修改仓库源码；没有备份时会报错。
 
-### 私有配置
+### 改配置
 
-`apps/` 提交到 Git。`private/` 被 `.gitignore` 忽略，放不该公开或只属于这台机器的东西：身份、token、代理、内网主机、私钥路径。
+`apps/` 保存可提交到 Git 的共享配置。`private/` 被 Git 忽略，保存身份、token、代理、内网主机和私钥路径等本机设置。修改源码后运行 `./install.sh`；直接修改生成文件，下次安装会覆盖它。
 
-每个目标文件按下表顺序拼接。`private/` 里的文件可以没有，有的话以它为准。
+每个目标按下表顺序拼接，private 文件可选：
 
 | 目标 | 来源（按顺序） |
 | --- | --- |
@@ -61,91 +53,74 @@ zsh scripts/restore-dotfiles.zsh ~/.local/state/dotfiles-backups/dotfiles-YYYYMM
 | `~/.zimrc` | `apps/zsh/shared/modules/zim.zsh` |
 | `~/.config/gh/config.yml` | `apps/gh/config.yml` |
 
-- SSH 把 private 放在前面，因为 OpenSSH 对同一个选项只取第一次出现的值。
-- `apps/zsh` 里各片段的顺序写在 `apps/zsh/manifest.toml`：先共享片段，再 `platform/darwin` 或 `platform/linux`。新加的 zsh 文件要写进 manifest 才会加载。
-- 环境变量放 `private/zsh/environment.zsh`，登录 shell 和交互 shell 都会加载它；alias 和函数放 `private/zsh/interactive.zsh`。
+- Zsh 按 `apps/zsh/manifest.toml` 装配：shared → 当前平台片段 → private。新增片段要登记到 manifest。
+- 环境变量放 `private/zsh/environment.zsh`；登录 shell 配置放 `profile.zsh`，alias 和函数放 `interactive.zsh`。
+- SSH 将 private 放在前面，因为 OpenSSH 的多数选项采用第一次出现的值。
 
-比如设置 Git 身份：
+例如设置 Git 身份：
 
-```zsh
+```sh
 mkdir -p private/git
 git config --file private/git/gitconfig user.name "Your Name"
 git config --file private/git/gitconfig user.email "you@example.com"
-zsh scripts/apply-dotfiles.zsh
+./install.sh
 ```
 
-`private/` 不在 Git 里，换机器时要自己拷过去，备份包里也有一份。
+`private/` 需要自行保管，换机器时单独复制。安装备份只保存受管 HOME 文件，不包含这份源码。
 
-### 常用命令
+### 使用注意
 
-```zsh
-zsh scripts/apply-dotfiles.zsh              # 生成并写入 ~
-zsh scripts/apply-dotfiles.zsh --diff       # 只看 diff
-zsh scripts/apply-dotfiles.zsh --check      # 有差异时返回 1
-zsh scripts/backup-dotfiles.zsh             # 备份目标文件和 private/
-zsh scripts/restore-dotfiles.zsh <archive>  # 从备份恢复目标文件和 private/，会先确认
-zsh scripts/publish-dotfiles.zsh            # 用固定信息提交全部改动，推送到 origin main
-zsh tests/apply-dotfiles.zsh                # 回归测试，只用临时目录
-```
-
-apply 的 `--home <dir>`、`--platform darwin|linux` 可以把配置生成到别的目录、按另一个平台生成，其余选项看 `--help`。恢复时 `.sha256` 文件要和备份包放在一起。
+- 开启了 `NO_CLOBBER`：`>` 不覆盖已有文件，明确覆盖时使用 `>|`。
+- macOS 的 Homebrew 默认使用清华镜像，可在 `apps/zsh/platform/darwin/profile.zsh` 调整三个 `HOMEBREW_*` 变量。
+- Vim 中 Esc 后 1 秒内输入的 `b`、`f`、`d`、退格可能被识别为 Option 组合键，会影响快速按 Esc 后执行这些普通按键命令。
 
 ## 写给 Agent
 
-先读 `AGENTS.md`。注释和脚本输出用中文。
+先读 `AGENTS.md`。注释和脚本输出用中文，配置改动写入仓库源码。
 
-### 要点
+### 代码入口与约束
 
-- 拼接逻辑在 `scripts/apply-dotfiles.zsh` 的 `render_zsh_target` 和 `render_plain_target`。目标路径、平台、权限登记在 `scripts/managed-targets.zsh`，backup 和 restore 读的也是这份登记。
-- `apps/zsh/manifest.toml` 由 `dotfiles_manifest_sources` 解析，只认双引号字符串，单引号条目会被静默跳过。
-- `apps/zsh/shared/modules/zim.zsh` 是 `~/.zimrc` 的源码，不能写进 manifest。
-- `~/.config/gh/hosts.yml` 是 gh 的登录凭据，不受管理，不要读写。
-- 目标文件是复制出去的。改 `apps/` 或 `private/` 后重新 apply，不要直接改 `$HOME` 里的目标文件。
-- `private/` 只留在本地：不要 `git add -f`，也不要把其中的内容写进 `apps/`。
+- `install.sh` 是用户入口：无参数安装，`-r` 回滚。`lib/` 中的文件仅供内部加载。
+- `lib/config.zsh`：`targets` 是安装、备份、回滚共用的唯一目标清单；`render_zsh` 和 `render_plain` 负责拼接。
+- `lib/files.zsh`：负责路径检查、快照复制和文件替换。写入前检查全部目标，拒绝目录、特殊文件和符号链接父目录；每个文件在目标父目录中暂存后替换。
+- `apps/zsh/manifest.toml`：唯一的 Zsh 加载顺序来源。`manifest_sources` 读取简单双引号路径数组；`apps/zsh/shared/modules/zim.zsh` 单独生成 `.zimrc`，不加入 manifest。
+- 生成配置必须自包含，不依赖仓库路径。macOS 专属配置放在 `apps/zsh/platform/darwin/`。
+- 安装时 private 目录权限为 `700`、文件为 `600`。`.zshrc`、`.zprofile`、`.gitconfig`、`.npmrc`、`.ssh/config` 安装权限为 `600`，其他目标为 `644`。
+- 备份目录权限为 `700`，内部保留原文件权限。全部渲染与备份成功后才替换旧备份并开始安装；写入或回滚失败时保留完整备份，排除错误后可以重试回滚。回滚可能留下空父目录。
+- `private/` 的内容不能写入共享源码或强制加入 Git。gh 登录凭据 `~/.config/gh/hosts.yml`、SSH 密钥和 `known_hosts` 不在管理范围内，维护本仓库时不要读写它们。
 
 ### 帮用户部署
 
-用户刚 clone 完、让你把配置装上时：
-
-1. 问用户有没有现成的 `private/`（来自另一台机器或备份包），有就先放到仓库根目录。
-2. 跑 `zsh scripts/apply-dotfiles.zsh --dry-run` 和 `--diff`，看清哪些现有文件会被替换。两者都不写入。
-3. 读这些文件，把还要保留的内容按上文的表搬进 `private/<app>/`：Git 身份和凭据设置、SSH 主机、npm registry 和 token、代理、本机 PATH 和工具初始化。`~/.zimrc` 和 `~/.config/gh/config.yml` 没有 private 层，要保留只能改 `apps/`，先问用户。
-4. 按「验证」在临时 HOME 里跑一遍。
-5. 跑 `zsh scripts/backup-dotfiles.zsh`，把真实 HOME 的 `--diff` 给用户看，用户同意后再 apply，然后跑 `--check`。
-6. 让用户执行 `exec zsh -l`。首次启动会联网安装 Zim。
-
-`apps/` 里的提示符、alias、Homebrew 镜像和 Vim 映射是作者的个人偏好，留不留由用户决定。
-
-### 需要用户确认
-
-- 写入真实 HOME 的 apply（不带 `--diff`、`--dry-run`、`--check`）：会替换用户现有的配置。
-- `restore-dotfiles.zsh`：会删除当前目标文件并整体替换 `private/`。用户没要求就不加 `--yes`。
-- `publish-dotfiles.zsh`：会 `git add .`、提交并推送。
+1. 检查仓库现有的 private 配置，把用户希望保留的 Git 身份、SSH 主机、npm 设置、代理和本机初始化整理到对应的 `private/<app>/`。`.zimrc` 和 gh 配置的共享源码只保存可公开内容。
+2. 在临时 HOME 中完成验证。仅修改仓库时，验证也只使用临时 HOME。
+3. 用户请求安装时运行 `./install.sh`；请求回滚时运行 `./install.sh -r`。安装自动备份，回滚直接覆盖。
+4. 报告执行结果和备份状态，提示新开登录 Shell 或执行 `exec zsh -l`；首次启动 Zsh 会联网安装插件。
 
 ### 验证
 
-```zsh
-zsh tests/apply-dotfiles.zsh
-
-for platform in darwin linux; do
-  tmp_home="$(mktemp -d)"
-  zsh scripts/apply-dotfiles.zsh --home "$tmp_home" --platform "$platform"
-  zsh scripts/apply-dotfiles.zsh --home "$tmp_home" --platform "$platform" --check
-  zsh -n "$tmp_home/.zshrc"
-  zsh -n "$tmp_home/.zprofile"
-  vim -Nu "$tmp_home/.vimrc" -n -es +'qa!'
-  git config --file "$tmp_home/.gitconfig" --list >/dev/null
-  ssh -G -F "$tmp_home/.ssh/config" example.com >/dev/null
-  rm -rf "$tmp_home"
-done
+```sh
+zsh -df tests/install.zsh
 ```
 
-结束时 `git status` 里不应出现 `private/` 下的文件，`apps/` 里不应有凭据。
+测试自动创建并清理临时仓库和临时 HOME，不读取本机 private。覆盖两种平台的渲染、配置优先级、安装、最近一次备份、回滚、权限、符号链接和失败恢复。测试通过替换平台检测来覆盖 darwin/linux 分支，文件操作使用宿主系统工具。
+
+手动检查生成内容时：
+
+```sh
+test_home="$(mktemp -d)"
+HOME="$test_home" ./install.sh
+zsh -n "$test_home/.zshrc"
+zsh -n "$test_home/.zprofile"
+HOME="$test_home" vim -Nu "$test_home/.vimrc" -i NONE -n -es +'qa!'
+git config --file "$test_home/.gitconfig" --list >/dev/null
+ssh -G -F "$test_home/.ssh/config" example.com >/dev/null
+HOME="$test_home" ./install.sh -r
+rm -rf "$test_home"
+```
 
 ### 新增受管文件
 
-1. `scripts/managed-targets.zsh`：在 `DOTFILES_TARGET_REGISTRY` 加一条，并把新 renderer 加进校验 renderer 的 `case`。
-2. `scripts/apply-dotfiles.zsh`：在 `render_plain_target` 加分支，写明 shared 和 private 源码路径。
-3. `.gitignore`：在“临时 HOME 位于仓库根目录时生成的目标”一节加 `/<目标路径>`。
-4. 检查 `backup-dotfiles.zsh` 和 `restore-dotfiles.zsh` 是否要跟着改。
-5. 更新本 README「写给人看」里的文件列表和表格。
+1. 在 `lib/config.zsh` 的 `targets` 增加相对路径、renderer 和权限，并实现对应渲染分支。
+2. 在 `apps/<app>/` 添加共享源码，按需要约定 private 路径。
+3. 将新增目标和运行时文件加入 `.gitignore`，检查 `lib/files.zsh` 的备份和回滚行为。
+4. 更新上面的来源表和 `tests/install.zsh`，在临时 HOME 验证安装与回滚。

@@ -1,0 +1,217 @@
+#!/usr/bin/env zsh
+
+# 在临时仓库与 HOME 中验证公开安装入口，不读取本机 private 配置。
+emulate -LR zsh
+setopt ERR_EXIT NO_UNSET PIPE_FAIL POSIX_TRAPS
+
+typeset repo_root="${${(%):-%x}:A:h:h}"
+typeset test_root="$(command mktemp -d "${TMPDIR:-/tmp}/dotfiles test.XXXXXX")"
+test_root="${test_root:A}"
+trap 'command rm -rf "$test_root"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+typeset test_source="$test_root/source" test_home test_platform backup_dir output
+typeset -i checks=0
+command mkdir -p "$test_source" "$test_root/bin" "$test_root/external"
+command cp -R "$repo_root/apps" "$repo_root/lib" "$repo_root/install.sh" "$test_source/"
+print -r -- outside > "$test_root/external/config"
+
+# 仅替换平台检测；文件操作始终使用宿主系统的 BSD/GNU 工具。
+cat > "$test_root/bin/uname" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$TEST_PLATFORM"
+EOF
+command chmod +x "$test_root/bin/uname"
+
+fail() {
+  print -u2 -- "失败：$*"
+  [[ ! -f "$test_root/output" ]] || command cat "$test_root/output" >&2
+  exit 1
+}
+
+check() {
+  local label="$1"
+  shift
+  "$@" || fail "$test_platform $label"
+  (( checks += 1 ))
+}
+
+mode() {
+  case "$OSTYPE" in
+    darwin*) command stat -f '%Lp' "$1" ;;
+    linux*) command stat -c '%a' "$1" ;;
+  esac
+}
+
+run_install() {
+  command env HOME="$test_home" PATH="$test_root/bin:$PATH" \
+    TEST_PLATFORM="$test_platform" "$test_source/install.sh" "$@" \
+    < /dev/null > "$test_root/output" 2>&1
+}
+
+expect_failure() {
+  if run_install "$@"; then
+    fail "命令应失败：install.sh $*"
+  fi
+  (( checks += 1 ))
+}
+
+new_home() {
+  test_home="$test_root/$test_platform $1"
+  backup_dir="$test_home/.local/state/dotfiles/backup"
+  command mkdir -p "$test_home"
+}
+
+for test_platform in Darwin Linux; do
+  # 空 HOME 和没有 private 的首次安装；回滚删除所有新增配置。
+  command rm -rf "$test_source/private"
+  new_home empty
+  expect_failure -r
+  expect_failure unexpected
+  check '无备份时不创建状态目录' test ! -e "$test_home/.local"
+  run_install || fail '首次安装失败'
+  check '空快照也可以回滚' test -d "$backup_dir"
+  check '备份目录权限' test "$(mode "$backup_dir")" = 700
+  check 'Zsh 交互配置语法' zsh -n "$test_home/.zshrc"
+  check 'Zsh 登录配置语法' zsh -n "$test_home/.zprofile"
+  check 'Zim 配置语法' zsh -n "$test_home/.zimrc"
+  check 'Vim 配置可加载' env HOME="$test_home" vim -Nu "$test_home/.vimrc" -i NONE -n -es +'qa!'
+  check '共享 Git 配置' test "$(git config --file "$test_home/.gitconfig" http.version)" = HTTP/1.1
+  if [[ "$test_platform" == Darwin ]]; then
+    check '加载 macOS 片段' grep -q HOMEBREW "$test_home/.zprofile"
+  elif command grep -q HOMEBREW "$test_home/.zprofile"; then
+    fail 'Linux 加载了 macOS 片段'
+  fi
+  run_install -r || fail '空快照回滚失败'
+  for output in .zshrc .zprofile .zimrc .vimrc .gitconfig .npmrc .ssh/config .config/gh/config.yml; do
+    check "删除新增目标 $output" test ! -e "$test_home/$output"
+  done
+  check '回滚清理备份' test ! -e "$backup_dir"
+  expect_failure -r
+
+  # 原有文件、权限、指向文件/目录的链接及悬空链接都必须可恢复。
+  command mkdir -p "$test_source/private/ssh" "$test_source/private/git" "$test_source/private/zsh"
+  cat > "$test_source/private/ssh/config" <<'EOF'
+Host override-test
+    HostName 127.0.0.1
+    ServerAliveInterval 5
+    ServerAliveCountMax 2
+    TCPKeepAlive no
+EOF
+  print -rl -- '[http]' '    version = HTTP/2' > "$test_source/private/git/gitconfig"
+  print -r -- 'export DOTFILES_TEST=private' > "$test_source/private/zsh/environment.zsh"
+  new_home existing
+  command mkdir -p "$test_home/.ssh" "$test_home/.config/gh"
+  print -r -- original > "$test_home/.zshrc"
+  command chmod 640 "$test_home/.zshrc"
+  print -r -- 'Host original' > "$test_home/.ssh/config"
+  command chmod 400 "$test_home/.ssh/config"
+  print -r -- auth > "$test_home/.config/gh/hosts.yml"
+  print -r -- known > "$test_home/.ssh/known_hosts"
+  command ln -s "$test_root/external/config" "$test_home/.vimrc"
+  command ln -s "$test_root/external" "$test_home/.gitconfig"
+  command ln -s missing "$test_home/.npmrc"
+  run_install || fail '已有配置安装失败'
+  check '备份发生在覆盖之前' test "$(<"$backup_dir/.zshrc")" = original
+  check '安装权限' test "$(mode "$test_home/.zshrc")" = 600
+  check 'private 文件权限' test "$(mode "$test_source/private/git/gitconfig")" = 600
+  check 'private 目录权限' test "$(mode "$test_source/private/git")" = 700
+  check 'Git 私有配置优先级' test "$(git config --file "$test_home/.gitconfig" http.version)" = HTTP/2
+  check 'Zsh 私有片段最后拼接' test "$(tail -n 2 "$test_home/.zshrc")" = 'export DOTFILES_TEST=private'
+  output="$(ssh -G -F "$test_home/.ssh/config" override-test 2>/dev/null)"
+  [[ "$output" == *$'serveraliveinterval 5\n'* \
+    && "$output" == *$'serveralivecountmax 2\n'* \
+    && "$output" == *$'tcpkeepalive no\n'* ]] || fail 'SSH 私有配置优先级'
+  output="$(ssh -G -F "$test_home/.ssh/config" fallback-test 2>/dev/null)"
+  [[ "$output" == *$'serveraliveinterval 30\n'* \
+    && "$output" == *$'serveralivecountmax 100\n'* \
+    && "$output" == *$'tcpkeepalive yes\n'* ]] || fail 'SSH 默认值'
+  print -r -- edited > "$test_home/.zshrc"
+  print -rl -- '[http]' '    version = HTTP/3' > "$test_source/private/git/gitconfig"
+  run_install -r || fail '已有配置回滚失败'
+  check '回滚覆盖后续修改' test "$(<"$test_home/.zshrc")" = original
+  check '恢复原始权限' test "$(mode "$test_home/.zshrc")" = 640
+  check '恢复只读文件权限' test "$(mode "$test_home/.ssh/config")" = 400
+  check '恢复文件链接' test "$(readlink "$test_home/.vimrc")" = "$test_root/external/config"
+  check '恢复目录链接' test "$(readlink "$test_home/.gitconfig")" = "$test_root/external"
+  check '恢复悬空链接' test "$(readlink "$test_home/.npmrc")" = missing
+  check '链接外部文件不变' test "$(<"$test_root/external/config")" = outside
+  check '认证文件不变' test "$(<"$test_home/.config/gh/hosts.yml")" = auth
+  check '其他 SSH 文件不变' test "$(<"$test_home/.ssh/known_hosts")" = known
+  check '回滚不修改源码' test "$(git config --file "$test_source/private/git/gitconfig" http.version)" = HTTP/3
+  check '清理已恢复快照' test ! -e "$backup_dir"
+
+  # 连续安装只保留最近一次；渲染或备份失败不替换已有快照。
+  new_home repeated
+  command mkdir -p "$test_home/.ssh"
+  print -r -- first > "$test_home/.zshrc"
+  print -r -- 'Host first' > "$test_home/.ssh/config"
+  run_install || fail '第一次安装失败'
+  print -r -- second > "$test_home/.zshrc"
+  command rm "$test_home/.ssh/config"
+  run_install || fail '第二次安装失败'
+  check '只保留最近一次状态' test "$(<"$backup_dir/.zshrc")" = second
+  check '新快照不残留旧文件' test ! -e "$backup_dir/.ssh/config"
+  check '状态目录只有一个备份' test "$(ls -A "$test_home/.local/state/dotfiles")" = backup
+  command cp -RPp "$backup_dir" "$test_root/expected"
+  command cp "$test_home/.zshrc" "$test_root/installed"
+  command mv "$test_source/apps/vim/vimrc" "$test_root/vimrc"
+  expect_failure
+  command mv "$test_root/vimrc" "$test_source/apps/vim/vimrc"
+  check '渲染失败保留原配置' cmp -s "$test_home/.zshrc" "$test_root/installed"
+  check '渲染失败保留旧备份' diff -r "$backup_dir" "$test_root/expected"
+  cat > "$test_root/bin/cp" <<'EOF'
+#!/bin/sh
+for value do
+  [ "$value" != "$HOME/.gitconfig" ] || exit 1
+done
+exec /bin/cp "$@"
+EOF
+  command chmod +x "$test_root/bin/cp"
+  expect_failure
+  command rm "$test_root/bin/cp"
+  check '备份失败保留原配置' cmp -s "$test_home/.zshrc" "$test_root/installed"
+  check '备份失败保留旧备份' diff -r "$backup_dir" "$test_root/expected"
+  command rm -rf "$test_root/expected"
+  run_install -r || fail '最近一次备份回滚失败'
+  check '恢复第二次安装之前' test "$(<"$test_home/.zshrc")" = second
+  check '恢复第二次安装前缺失状态' test ! -e "$test_home/.ssh/config"
+  run_install || fail '回滚后安装失败'
+
+  # 中途写入失败后，完整快照仍能用于回滚；回滚失败也不消耗快照。
+  print -r -- before > "$test_home/.zshrc"
+  cat > "$test_root/bin/mv" <<'EOF'
+#!/bin/sh
+for value do
+  [ "$value" != "$HOME/.zprofile" ] || exit 1
+done
+exec /bin/mv "$@"
+EOF
+  command chmod +x "$test_root/bin/mv"
+  expect_failure
+  check '安装失败保留本次备份' test "$(<"$backup_dir/.zshrc")" = before
+  expect_failure -r
+  check '回滚失败保留完整备份' test -f "$backup_dir/.zprofile"
+  command rm "$test_root/bin/mv"
+  run_install -r || fail '失败后重试回滚失败'
+  check '重试回滚恢复配置' test "$(<"$test_home/.zshrc")" = before
+  check '重试成功清理备份' test ! -e "$backup_dir"
+  check '失败后无临时文件残留' test -z "$(find "$test_home" \( -name '.dotfiles.*' -o -name '.pending.*' \) -print)"
+
+  # 对所有目标提前检查，避免遇到靠后的危险路径时已经写入前面的配置。
+  for output in .ssh .local; do
+    new_home "parent $output"
+    print -r -- safe > "$test_home/.zshrc"
+    command ln -s "$test_root/external" "$test_home/$output"
+    expect_failure
+    check '拒绝符号链接父目录前不写入' test "$(<"$test_home/.zshrc")" = safe
+  done
+  new_home directory
+  print -r -- safe > "$test_home/.zshrc"
+  command mkdir -p "$test_home/.config/gh/config.yml"
+  expect_failure
+  check '拒绝目录目标前不写入' test "$(<"$test_home/.zshrc")" = safe
+done
+
+print -- "通过：$checks 项检查，覆盖 darwin/linux 渲染、安装、最近一次备份、回滚及失败恢复。"

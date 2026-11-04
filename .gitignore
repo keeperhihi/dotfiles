@@ -37,7 +37,7 @@ private/
 .DS_Store
 Thumbs.db
 .dotfiles.*
-.local/state/dotfiles-backups/
+.local/state/dotfiles/
 
 # 临时 HOME 位于仓库根目录时生成的目标。
 /.zshrc
@@ -48,7 +48,3 @@ Thumbs.db
 /.npmrc
 /.ssh/config
 /.config/gh/config.yml
-
-# 仓库内意外生成的备份。
-dotfiles-*.tar.gz
-dotfiles-*.tar.gz.sha256
