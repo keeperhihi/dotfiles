@@ -50,7 +50,7 @@ if [[ "$action" == restore ]]; then
   validate_targets "$backup_dir"
   write_targets "$backup_dir"
   command rm -rf "$backup_dir"
-  print -- '回滚完成，备份已清理。新开一个登录 Shell 后生效。'
+  print -- '回滚完成，备份已清理，source 后生效。'
   exit 0
 fi
 
@@ -81,4 +81,4 @@ command mv "$staging_dir/backup" "$backup_dir"
 print -- "备份完成：$backup_dir"
 
 write_targets "$staging_dir/rendered"
-print -- "安装完成：$platform。新开一个登录 Shell 后生效。"
+print -- "安装完成：$platform，source 后生效。"
