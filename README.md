@@ -9,8 +9,8 @@
 需要 Zsh 和 Git。要保留的本机设置先让 Agent 整理到 `private/`。
 
 ```sh
-git clone https://github.com/keeperhihi/dotfile.git
-cd dotfile
+git clone https://github.com/keeperhihi/dotfiles.git
+cd dotfiles
 ./install.sh
 exec zsh -l
 ```
