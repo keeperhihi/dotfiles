@@ -7,8 +7,8 @@ umask 077
 
 usage() {
   print -- '用法：./install.sh [-r]'
-  print -- '  无参数  备份当前配置，然后安装'
-  print -- '  -r      覆盖恢复最近一次备份，成功后删除备份'
+  print -- '  无参数  安装；第一次接管的配置先备份原样'
+  print -- '  -r      恢复成第一次安装之前的样子，成功后删除备份'
 }
 
 (( $# <= 1 )) || { usage >&2; exit 2; }
@@ -40,19 +40,23 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-validate_targets "$home_dir"
 validate_parent_chain "$backup_dir" "$home_dir"
 [[ ! -L "$backup_dir" && ( ! -e "$backup_dir" || -d "$backup_dir" ) ]] \
   || die "备份路径必须是普通目录：$backup_dir"
 
 if [[ "$action" == restore ]]; then
   [[ -d "$backup_dir" ]] || die '没有可回滚的备份'
+  # 按接管记录回滚（记录只有相对路径）：清单后来删掉的目标也放回原样，没接管过的目标不动。
+  targets=("${(@f)$(<"$backup_dir/managed")}")
+  validate_targets "$home_dir"
   validate_targets "$backup_dir"
   write_targets "$backup_dir"
   command rm -rf "$backup_dir"
   print -- '回滚完成，备份已清理，source 后生效。'
   exit 0
 fi
+
+validate_targets "$home_dir"
 
 typeset platform
 case "$(command uname -s)" in
@@ -73,12 +77,14 @@ command mkdir -p -m 700 "$state_dir"
 command chmod 700 "$state_dir"
 staging_dir="$(command mktemp -d "$state_dir/.pending.XXXXXX")"
 
-# 渲染和备份全部成功后，才替换上一次备份并开始写入 HOME。
+# 渲染和备份全部成功后才写入 HOME。只有第一次接管的目标存原样，存过的不再覆盖。
 render_targets "$staging_dir/rendered"
 snapshot_targets "$staging_dir/backup"
-command rm -rf "$backup_dir"
-command mv "$staging_dir/backup" "$backup_dir"
-print -- "备份完成：$backup_dir"
+if [[ -d "$staging_dir/backup" ]]; then
+  command rm -rf "$backup_dir"
+  command mv "$staging_dir/backup" "$backup_dir"
+  print -- "原样已备份：$backup_dir"
+fi
 
 write_targets "$staging_dir/rendered"
 print -- "安装完成：$platform，source 后生效。"

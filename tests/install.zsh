@@ -142,7 +142,7 @@ EOF
   check '回滚不修改源码' test "$(git config --file "$test_source/private/git/gitconfig" http.version)" = HTTP/3
   check '清理已恢复快照' test ! -e "$backup_dir"
 
-  # 连续安装只保留最近一次；渲染或备份失败不替换已有快照。
+  # 只在第一次接管时备份：重装不覆盖原样；渲染失败不写入 HOME。
   new_home repeated
   command mkdir -p "$test_home/.ssh"
   print -r -- first > "$test_home/.zshrc"
@@ -151,8 +151,8 @@ EOF
   print -r -- second > "$test_home/.zshrc"
   command rm "$test_home/.ssh/config"
   run_install || fail '第二次安装失败'
-  check '只保留最近一次状态' test "$(<"$backup_dir/.zshrc")" = second
-  check '新快照不残留旧文件' test ! -e "$backup_dir/.ssh/config"
+  check '重装不覆盖原样' test "$(<"$backup_dir/.zshrc")" = first
+  check '重装保留原样里的文件' test "$(<"$backup_dir/.ssh/config")" = 'Host first'
   check '状态目录只有一个备份' test "$(ls -A "$test_home/.local/state/dotfiles")" = backup
   command cp -RPp "$backup_dir" "$test_root/expected"
   command cp "$test_home/.zshrc" "$test_root/installed"
@@ -160,11 +160,16 @@ EOF
   expect_failure
   command mv "$test_root/vimrc" "$test_source/apps/vim/vimrc"
   check '渲染失败保留原配置' cmp -s "$test_home/.zshrc" "$test_root/installed"
-  check '渲染失败保留旧备份' diff -r "$backup_dir" "$test_root/expected"
+  check '渲染失败不动原样' diff -r "$backup_dir" "$test_root/expected"
+
+  # 清单新增的目标在第一次安装时补存原样；存原样失败时不写入 HOME，也不动已有原样。
+  command cp "$test_source/lib/config.zsh" "$test_root/config.zsh"
+  print -r -- "targets+=('.exrc vimrc 644')" >> "$test_source/lib/config.zsh"
+  print -r -- mine > "$test_home/.exrc"
   cat > "$test_root/bin/cp" <<'EOF'
 #!/bin/sh
 for value do
-  [ "$value" != "$HOME/.gitconfig" ] || exit 1
+  [ "$value" != "$HOME/.exrc" ] || exit 1
 done
 exec /bin/cp "$@"
 EOF
@@ -172,32 +177,50 @@ EOF
   expect_failure
   command rm "$test_root/bin/cp"
   check '备份失败保留原配置' cmp -s "$test_home/.zshrc" "$test_root/installed"
-  check '备份失败保留旧备份' diff -r "$backup_dir" "$test_root/expected"
+  check '备份失败不写新目标' test "$(<"$test_home/.exrc")" = mine
+  check '备份失败不动原样' diff -r "$backup_dir" "$test_root/expected"
   command rm -rf "$test_root/expected"
-  run_install -r || fail '最近一次备份回滚失败'
-  check '恢复第二次安装之前' test "$(<"$test_home/.zshrc")" = second
-  check '恢复第二次安装前缺失状态' test ! -e "$test_home/.ssh/config"
+  run_install || fail '新增目标后安装失败'
+  check '新增目标补存原样' test "$(<"$backup_dir/.exrc")" = mine
+  check '已有原样不变' test "$(<"$backup_dir/.zshrc")" = first
+  run_install -r || fail '回滚失败'
+  command mv "$test_root/config.zsh" "$test_source/lib/config.zsh"
+  check '恢复第一次安装之前' test "$(<"$test_home/.zshrc")" = first
+  check '恢复第一次安装前的文件' test "$(<"$test_home/.ssh/config")" = 'Host first'
+  check '恢复新增目标的原样' test "$(<"$test_home/.exrc")" = mine
   run_install || fail '回滚后安装失败'
 
-  # 中途写入失败后，完整快照仍能用于回滚；回滚失败也不消耗快照。
-  print -r -- before > "$test_home/.zshrc"
+  # 中途写入失败后，原样仍能用于回滚；回滚失败也不消耗备份。
+  print -r -- edited > "$test_home/.zshrc"
   cat > "$test_root/bin/mv" <<'EOF'
 #!/bin/sh
 for value do
-  [ "$value" != "$HOME/.zprofile" ] || exit 1
+  [ "$value" != "$HOME/.ssh/config" ] || exit 1
 done
 exec /bin/mv "$@"
 EOF
   command chmod +x "$test_root/bin/mv"
   expect_failure
-  check '安装失败保留本次备份' test "$(<"$backup_dir/.zshrc")" = before
+  check '安装失败不动原样' test "$(<"$backup_dir/.zshrc")" = first
   expect_failure -r
-  check '回滚失败保留完整备份' test -f "$backup_dir/.zprofile"
+  check '回滚失败保留完整备份' test -f "$backup_dir/.ssh/config"
   command rm "$test_root/bin/mv"
   run_install -r || fail '失败后重试回滚失败'
-  check '重试回滚恢复配置' test "$(<"$test_home/.zshrc")" = before
+  check '重试回滚恢复配置' test "$(<"$test_home/.zshrc")" = first
   check '重试成功清理备份' test ! -e "$backup_dir"
   check '失败后无临时文件残留' test -z "$(find "$test_home" \( -name '.dotfiles.*' -o -name '.pending.*' \) -print)"
+
+  # 回滚按接管记录：清单后来删掉的目标放回原样，还没接管的新目标不动。
+  new_home changed
+  print -r -- 'registry=original' > "$test_home/.npmrc"
+  run_install || fail '清单变更前安装失败'
+  command cp "$test_source/lib/config.zsh" "$test_root/config.zsh"
+  print -rl -- 'targets=("${(@)targets:#.npmrc *}")' "targets+=('.exrc vimrc 644')" >> "$test_source/lib/config.zsh"
+  print -r -- mine > "$test_home/.exrc"
+  run_install -r || fail '清单变更后回滚失败'
+  command mv "$test_root/config.zsh" "$test_source/lib/config.zsh"
+  check '恢复已移出清单的目标' test "$(<"$test_home/.npmrc")" = 'registry=original'
+  check '不动没接管过的目标' test "$(<"$test_home/.exrc")" = mine
 
   # 对所有目标提前检查，避免遇到靠后的危险路径时已经写入前面的配置。
   for output in .ssh .local; do
@@ -214,4 +237,4 @@ EOF
   check '拒绝目录目标前不写入' test "$(<"$test_home/.zshrc")" = safe
 done
 
-print -- "通过：$checks 项检查，覆盖 darwin/linux 渲染、安装、最近一次备份、回滚及失败恢复。"
+print -- "通过：$checks 项检查，覆盖 darwin/linux 渲染、安装、首次接管备份、回滚及失败恢复。"

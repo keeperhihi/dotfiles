@@ -15,7 +15,7 @@ cd dotfiles
 exec zsh -l
 ```
 
-安装前自动备份，只保留最近一份。
+第一次安装时自动备份原有配置，之后重装不再覆盖这份备份。
 
 ### 回滚
 
@@ -23,7 +23,7 @@ exec zsh -l
 ./install.sh -r
 ```
 
-回滚直接覆盖当前受管配置，不询问确认，成功后删除备份。
+恢复成第一次安装之前的样子：直接覆盖当前受管配置，不询问确认，成功后删除备份。
 
 ### 改配置
 
@@ -76,4 +76,4 @@ zsh -df tests/install.zsh
 | `apps/zsh/manifest.toml` | Zsh 加载顺序 |
 | `lib/config.zsh` | 目标清单、渲染 |
 | `lib/files.zsh` | 备份、回滚 |
-| `~/.local/state/dotfiles/backup/` | 最近一次备份 |
+| `~/.local/state/dotfiles/backup/` | 第一次安装前的原样 |
