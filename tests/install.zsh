@@ -75,16 +75,18 @@ for test_platform in Darwin Linux; do
   check '备份目录权限' test "$(mode "$backup_dir")" = 700
   check 'Zsh 交互配置语法' zsh -n "$test_home/.zshrc"
   check 'Zsh 登录配置语法' zsh -n "$test_home/.zprofile"
+  check 'Zsh 交互主体语法' zsh -n "$test_home/.config/zsh/interactive.zsh"
+  check 'Zsh 登录主体语法' zsh -n "$test_home/.config/zsh/profile.zsh"
   check 'Zim 配置语法' zsh -n "$test_home/.zimrc"
   check 'Vim 配置可加载' env HOME="$test_home" vim -Nu "$test_home/.vimrc" -i NONE -n -es +'qa!'
   check '共享 Git 配置' test "$(git config --file "$test_home/.gitconfig" http.version)" = HTTP/1.1
   if [[ "$test_platform" == Darwin ]]; then
-    check '加载 macOS 片段' grep -q HOMEBREW "$test_home/.zprofile"
-  elif command grep -q HOMEBREW "$test_home/.zprofile"; then
+    check '加载 macOS 片段' grep -q HOMEBREW "$test_home/.config/zsh/profile.zsh"
+  elif command grep -q HOMEBREW "$test_home/.config/zsh/profile.zsh"; then
     fail 'Linux 加载了 macOS 片段'
   fi
   run_install -r || fail '空快照回滚失败'
-  for output in .zshrc .zprofile .zimrc .vimrc .gitconfig .npmrc .ssh/config .config/gh/config.yml; do
+  for output in .zshrc .zprofile .config/zsh/interactive.zsh .config/zsh/profile.zsh .zimrc .vimrc .gitconfig .npmrc .ssh/config .config/gh/config.yml; do
     check "删除新增目标 $output" test ! -e "$test_home/$output"
   done
   check '回滚清理备份' test ! -e "$backup_dir"
@@ -118,7 +120,8 @@ EOF
   check 'private 文件权限' test "$(mode "$test_source/private/git/gitconfig")" = 600
   check 'private 目录权限' test "$(mode "$test_source/private/git")" = 700
   check 'Git 私有配置优先级' test "$(git config --file "$test_home/.gitconfig" http.version)" = HTTP/2
-  check 'Zsh 私有片段最后拼接' test "$(tail -n 2 "$test_home/.zshrc")" = 'export DOTFILES_TEST=private'
+  check 'Zsh 私有片段最后拼接' test "$(tail -n 2 "$test_home/.config/zsh/interactive.zsh")" = 'export DOTFILES_TEST=private'
+  check '入口保留原有内容' grep -qx original "$test_home/.zshrc"
   output="$(ssh -G -F "$test_home/.ssh/config" override-test 2>/dev/null)"
   [[ "$output" == *$'serveraliveinterval 5\n'* \
     && "$output" == *$'serveralivecountmax 2\n'* \
@@ -130,7 +133,7 @@ EOF
   print -r -- edited > "$test_home/.zshrc"
   print -rl -- '[http]' '    version = HTTP/3' > "$test_source/private/git/gitconfig"
   run_install -r || fail '已有配置回滚失败'
-  check '回滚覆盖后续修改' test "$(<"$test_home/.zshrc")" = original
+  check '入口回滚保留后续修改' test "$(<"$test_home/.zshrc")" = edited
   check '恢复原始权限' test "$(mode "$test_home/.zshrc")" = 640
   check '恢复只读文件权限' test "$(mode "$test_home/.ssh/config")" = 400
   check '恢复文件链接' test "$(readlink "$test_home/.vimrc")" = "$test_root/external/config"
@@ -185,7 +188,7 @@ EOF
   check '已有原样不变' test "$(<"$backup_dir/.zshrc")" = first
   run_install -r || fail '回滚失败'
   command mv "$test_root/config.zsh" "$test_source/lib/config.zsh"
-  check '恢复第一次安装之前' test "$(<"$test_home/.zshrc")" = first
+  check '入口回滚保留当前用户内容' test "$(<"$test_home/.zshrc")" = second
   check '恢复第一次安装前的文件' test "$(<"$test_home/.ssh/config")" = 'Host first'
   check '恢复新增目标的原样' test "$(<"$test_home/.exrc")" = mine
   run_install || fail '回滚后安装失败'
@@ -201,12 +204,12 @@ exec /bin/mv "$@"
 EOF
   command chmod +x "$test_root/bin/mv"
   expect_failure
-  check '安装失败不动原样' test "$(<"$backup_dir/.zshrc")" = first
+  check '安装失败不动原样' test "$(<"$backup_dir/.zshrc")" = second
   expect_failure -r
   check '回滚失败保留完整备份' test -f "$backup_dir/.ssh/config"
   command rm "$test_root/bin/mv"
   run_install -r || fail '失败后重试回滚失败'
-  check '重试回滚恢复配置' test "$(<"$test_home/.zshrc")" = first
+  check '重试回滚保留入口外部内容' test "$(<"$test_home/.zshrc")" = edited
   check '重试成功清理备份' test ! -e "$backup_dir"
   check '失败后无临时文件残留' test -z "$(find "$test_home" \( -name '.dotfiles.*' -o -name '.pending.*' \) -print)"
 
@@ -221,6 +224,45 @@ EOF
   command mv "$test_root/config.zsh" "$test_source/lib/config.zsh"
   check '恢复已移出清单的目标' test "$(<"$test_home/.npmrc")" = 'registry=original'
   check '不动没接管过的目标' test "$(<"$test_home/.exrc")" = mine
+
+  # 从真实旧布局切换：移走旧生成主体，工具区块在安装、重装和回滚后仍在。
+  new_home magpie
+  cat > "$test_home/.zshrc" <<'EOF'
+# 由 install.sh 生成；请编辑 apps/zsh 或 private/zsh。
+export OLD_AI_ROUTE=old
+
+# >>> magpie agy >>>
+agy() { print -r -- magpie; }
+# <<< magpie agy <<<
+EOF
+  cat > "$test_root/magpie" <<'EOF'
+# >>> magpie agy >>>
+agy() { print -r -- magpie; }
+# <<< magpie agy <<<
+EOF
+  run_install || fail '旧版 Zsh 入口交接失败'
+  check '旧生成主体已移出入口' test "$(grep -c OLD_AI_ROUTE "$test_home/.zshrc" || true)" = 0
+  check 'Magpie 区块仍在' grep -q 'agy()' "$test_home/.zshrc"
+  command cp "$test_home/.zshrc" "$test_root/entry"
+  run_install || fail '与 Magpie 共存时重装失败'
+  check '重复安装入口不变化' cmp -s "$test_root/entry" "$test_home/.zshrc"
+  check '只存在一个 dotfiles 区块' test "$(grep -c '^# >>> dotfiles >>>$' "$test_home/.zshrc")" = 1
+  # 验证实际 source 链，不启动 Zim 或其他外部程序。
+  print -r -- 'export DOTFILES_ENTRY_TEST=loaded' > "$test_home/.config/zsh/interactive.zsh"
+  output="$(env HOME="$test_home" zsh -df -c 'source "$HOME/.zshrc"; print -r -- "$DOTFILES_ENTRY_TEST"; agy')"
+  check '默认入口同时加载主体和 Magpie 函数' test "$output" = $'loaded\nmagpie'
+  print -r -- 'export AFTER_INSTALL=kept' >> "$test_home/.zshrc"
+  run_install -r || fail 'Magpie 共存回滚失败'
+  check '回滚保留 Magpie 函数' grep -q 'agy()' "$test_home/.zshrc"
+  check '回滚保留后加配置' grep -qx 'export AFTER_INSTALL=kept' "$test_home/.zshrc"
+  check '回滚只撤下自己的区块' test "$(grep -c '^# >>> dotfiles >>>$' "$test_home/.zshrc" || true)" = 0
+
+  new_home malformed
+  print -rl -- '# >>> dotfiles >>>' 'unfinished' > "$test_home/.zshrc"
+  command cp "$test_home/.zshrc" "$test_root/entry"
+  expect_failure
+  check '区块损坏不覆盖入口' cmp -s "$test_root/entry" "$test_home/.zshrc"
+  check '区块损坏不提前安装主体' test ! -e "$test_home/.config/zsh/interactive.zsh"
 
   # 对所有目标提前检查，避免遇到靠后的危险路径时已经写入前面的配置。
   for output in .ssh .local; do

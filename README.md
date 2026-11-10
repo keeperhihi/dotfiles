@@ -12,10 +12,10 @@
 git clone https://github.com/keeperhihi/dotfiles.git
 cd dotfiles
 ./install.sh
-exec zsh -l
 ```
 
-第一次安装时自动备份原有配置，之后重装不再覆盖这份备份。
+第一次安装时自动备份原有配置，之后重装不再覆盖这份备份。安装后关闭旧终端窗口，
+从桌面重新打开终端，让新的配置生效并清除旧 Shell 中已导出的环境变量。
 
 ### 回滚
 
@@ -23,13 +23,41 @@ exec zsh -l
 ./install.sh -r
 ```
 
-恢复成第一次安装之前的样子：直接覆盖当前受管配置，不询问确认，成功后删除备份。
+Zsh 的启动入口只移除 dotfiles 自己的区块，保留 Magpie 等工具的区块及其他内容。其余受管文件恢复成第一次安装之前的样子，成功后删除备份。
 
 ### 改配置
 
 共享配置放 `apps/`，本机配置放 `private/`。修改后重新运行 `./install.sh`。
 
 `private/` 不进 Git。
+
+### Zsh 与 Magpie 共存
+
+Zsh 的主体配置生成到 `~/.config/zsh/interactive.zsh` 和
+`~/.config/zsh/profile.zsh`，分别对应交互式与登录配置。它们是独立副本，
+日常仍编辑仓库中的 `apps/zsh/`、`private/zsh/`，安装后不依赖仓库路径。
+
+`~/.zshrc` 和 `~/.zprofile` 只由 dotfiles 维护下面的入口区块；同一文件中的
+Magpie `agy` 区块及其他内容会在重装、回滚时保留：
+
+```zsh
+# >>> dotfiles >>>
+source "$HOME/.config/zsh/interactive.zsh"
+# <<< dotfiles <<<
+```
+
+`.zprofile` 加载的是 `profile.zsh`。不需要修改 `ZDOTDIR`。
+从旧版整文件生成的启动文件升级时，旧主体被独立生成文件替代，
+从第一个 `# >>> …` 工具标记开始的尾部保留；首次接管备份仍保留到回滚。
+旧主体中的个人改动应先整理到 `private/zsh/`。
+
+AI 工具的账号、密钥、网关、模型以及 `agy` 启动函数由 Magpie 管理。
+Shell 片段中不再导出 AI 接入环境变量，也不再用 `deepseek`、`naive`
+之类的函数覆盖模型。切换模型在 Magpie 或客户端中进行。
+退出旧终端后重新打开，让旧的环境变量和函数退出当前 Shell。
+
+npm 源仍属于 dotfiles：在 `private/npm/npmrc` 中设置
+`registry=https://registry.npmjs.org/`，重装后才会与本机一致。
 
 ## 致 Agent
 
@@ -76,4 +104,7 @@ zsh -df tests/install.zsh
 | `apps/zsh/manifest.toml` | Zsh 加载顺序 |
 | `lib/config.zsh` | 目标清单、渲染 |
 | `lib/files.zsh` | 备份、回滚 |
+| `~/.config/zsh/interactive.zsh` | 生成的 Zsh 交互配置 |
+| `~/.config/zsh/profile.zsh` | 生成的 Zsh 登录配置 |
+| `~/.zshrc`、`~/.zprofile` | dotfiles 加载区块与其他工具区块共存的入口 |
 | `~/.local/state/dotfiles/backup/` | 第一次安装前的原样 |

@@ -8,7 +8,7 @@ umask 077
 usage() {
   print -- '用法：./install.sh [-r]'
   print -- '  无参数  安装；第一次接管的配置先备份原样'
-  print -- '  -r      恢复成第一次安装之前的样子，成功后删除备份'
+  print -- '  -r      撤下 Zsh 入口区块，其余配置恢复首次原样；成功后删除备份'
 }
 
 (( $# <= 1 )) || { usage >&2; exit 2; }
@@ -50,9 +50,11 @@ if [[ "$action" == restore ]]; then
   targets=("${(@f)$(<"$backup_dir/managed")}")
   validate_targets "$home_dir"
   validate_targets "$backup_dir"
+  staging_dir="$(command mktemp -d "$state_dir/.pending.XXXXXX")"
+  prepare_shell_restore "$staging_dir/shell"
   write_targets "$backup_dir"
   command rm -rf "$backup_dir"
-  print -- '回滚完成，备份已清理，source 后生效。'
+  print -- '回滚完成，备份已清理，重新打开终端后生效。'
   exit 0
 fi
 
@@ -87,4 +89,4 @@ if [[ -d "$staging_dir/backup" ]]; then
 fi
 
 write_targets "$staging_dir/rendered"
-print -- "安装完成：$platform，source 后生效。"
+print -- "安装完成：$platform，关闭旧终端窗口后重新打开。"

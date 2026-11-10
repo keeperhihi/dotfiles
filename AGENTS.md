@@ -1,7 +1,8 @@
 - 忽略文件：编写时检查 `.gitignore`，并保持它与新增运行时文件同步；仓库已改为原生脚本，不再维护旧工具的忽略文件。
-- 入口：只通过 `./install.sh` 安装、`./install.sh -r` 回滚；每个目标只在第一次接管时备份原样，之后重装不覆盖，回滚按接管记录恢复，成功回滚后清理。
+- 入口：只通过 `./install.sh` 安装、`./install.sh -r` 回滚；每个目标只在第一次接管时备份原样，之后重装不覆盖。Zsh 启动文件只管理 dotfiles 区块，回滚仅撤下该区块；其余目标按接管记录恢复，成功回滚后清理。
 - 文件操作：备份、覆盖写入和回滚统一使用 `lib/files.zsh`；受管目标统一维护在 `lib/config.zsh`。
 - 兼容性：外部命令同时考虑 macOS BSD 与 Linux GNU 语法；不要把 `--` 当成所有外部命令都支持的参数结束符。
-- 架构：日常维护内容放在 `apps/<app>` 的 shared 源码与 ignored `private/<app>`；`lib/config.zsh` 负责渲染，生成后的目标不依赖仓库路径。备份仅包含受管 HOME 文件，回滚不修改仓库源码。
+- 架构：日常维护内容放在 `apps/<app>` 的 shared 源码与 ignored `private/<app>`；`lib/config.zsh` 负责渲染。Zsh 主体生成到 `~/.config/zsh/{interactive,profile}.zsh`，`~/.zshrc` / `~/.zprofile` 通过 dotfiles 区块加载，保留其他内容。生成后的目标不依赖仓库路径。备份仅包含受管 HOME 文件，回滚不修改仓库源码。
+- AI 接入：账号、密钥、网关和模型交给 Magpie。不要在共享或私有 Shell 片段中重新加入 AI 接入环境变量或模型包装函数；Magpie 的 agy 区块由它自己维护。
 - 命名：脚本名不用连字符；语义目录名不用下划线；使用语义名，不用序号表达加载顺序，Zsh 顺序统一写在 `apps/zsh/manifest.toml`。
 - 最终态：不保留兼容 shim、迁移文件或旧目录跳转；变更必须先在临时 HOME 中验证。

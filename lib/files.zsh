@@ -34,6 +34,54 @@ validate_targets() {
   done
 }
 
+# 去掉自己的入口区块。旧版整文件生成的入口，其主体属于 dotfiles；
+# 第一个工具标记开始的尾部仍保留（例如 Magpie 后加的 agy 区块）。
+shell_remainder() {
+  local input="$1" output="$2"
+  if [[ ! -e "$input" ]]; then
+    : > "$output"
+    return
+  fi
+  [[ -f "$input" ]] || die "Zsh 入口必须指向普通文件：$input"
+  command awk '
+    skipblank { skipblank=0; if ($0 == "") next }
+    NR == 1 && $0 == "# 由 install.sh 生成；请编辑 apps/zsh 或 private/zsh。" { legacy=1; next }
+    legacy && /^# >>> / { legacy=0 }
+    legacy { next }
+    $0 == "# >>> dotfiles >>>" {
+      if (inside || seen++) exit 2
+      inside=1; next
+    }
+    $0 == "# <<< dotfiles <<<" {
+      if (!inside) exit 2
+      inside=0; skipblank=1; next
+    }
+    !inside { print }
+    END { if (inside) exit 2 }
+  ' "$input" > "$output" || die "dotfiles 的 Zsh 区块标记不完整或重复：$input"
+}
+
+# Zsh 入口的回滚只撤下自己的区块；其余目标仍恢复首次接管前的原样。
+# 先渲染全部入口，标记有误时不会写入任何 HOME 文件。
+prepare_shell_restore() {
+  local destination="$1" record relative renderer mode output
+  command mkdir -p "$destination"
+  for record in "${targets[@]}"; do
+    read -r relative renderer mode <<< "$record"
+    [[ "$relative" == .zshrc || "$relative" == .zprofile ]] || continue
+    output="$destination/$relative"
+    if [[ -f "$backup_dir/$relative" && ! -L "$backup_dir/$relative" ]]; then
+      command cp -p "$backup_dir/$relative" "$output"
+    fi
+    shell_remainder "$home_dir/$relative" "$output"
+    # 不替用户重新创建已删掉的入口；新建的空入口回滚后也移除。
+    if [[ ! -e "$home_dir/$relative" ]] || \
+      { [[ ! -s "$output" ]] && [[ ! -e "$backup_dir/$relative" ]]; }; then
+      command rm -f "$output"
+    fi
+  done
+}
+
 validate_source_tree() {
   local tree="$1" entry
   require_directory 源码 "$tree"
@@ -74,6 +122,9 @@ write_targets() {
   for record in "${targets[@]}"; do
     read -r relative renderer mode <<< "$record"
     source_file="$source_dir/$relative"
+    if [[ "${action:-}" == restore && ( "$relative" == .zshrc || "$relative" == .zprofile ) ]]; then
+      source_file="$staging_dir/shell/$relative"
+    fi
     target="$home_dir/$relative"
     if [[ ! -e "$source_file" && ! -L "$source_file" ]]; then
       # 安装前不存在的文件，在回滚时恢复为不存在。

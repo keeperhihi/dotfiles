@@ -48,3 +48,5 @@ Thumbs.db
 /.npmrc
 /.ssh/config
 /.config/gh/config.yml
+/.config/zsh/interactive.zsh
+/.config/zsh/profile.zsh

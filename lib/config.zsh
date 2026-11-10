@@ -3,6 +3,8 @@
 typeset -a targets=(
   '.zshrc zshrc 600'
   '.zprofile zprofile 600'
+  '.config/zsh/interactive.zsh interactive 600'
+  '.config/zsh/profile.zsh profile 600'
   '.zimrc zimrc 644'
   '.vimrc vimrc 644'
   '.gitconfig gitconfig 600'
@@ -104,6 +106,22 @@ render_zsh() {
   done
 }
 
+# 默认启动文件只持有加载入口；其他工具的区块留在入口文件中。
+render_zsh_entry() {
+  local relative="$1" fragment="$2" output="$3"
+  shell_remainder "$home_dir/$relative" "$output"
+  local remainder="$(<"$output")"
+  {
+    print -r -- '# >>> dotfiles >>>'
+    print -r -- "source \"\$HOME/.config/zsh/$fragment.zsh\""
+    print -r -- '# <<< dotfiles <<<'
+    if [[ -n "$remainder" ]]; then
+      print -r
+      print -r -- "$remainder"
+    fi
+  } > "$output"
+}
+
 render_plain() {
   local renderer="$1" output="$2"
   local shared_file private_file='' comment
@@ -156,8 +174,9 @@ render_targets() {
     output="$destination/$relative"
     command mkdir -p -m 700 "${output:h}"
     case "$renderer" in
-      zshrc) render_zsh interactive "$output" ;;
-      zprofile) render_zsh profile "$output" ;;
+      zshrc) render_zsh_entry .zshrc interactive "$output" ;;
+      zprofile) render_zsh_entry .zprofile profile "$output" ;;
+      interactive|profile) render_zsh "$renderer" "$output" ;;
       *) render_plain "$renderer" "$output" ;;
     esac
     command chmod "$mode" "$output"
